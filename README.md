@@ -92,9 +92,19 @@ Keep the model call out of the object. An awake object bills wall-clock time, so
 A git dependency, pinned by tag. `dist/` is committed, because a git dependency runs no
 build and Node won't strip types inside `node_modules`.
 
-```sh
-pnpm add github:bergaaberg/memlet#v0.1.0     # or npm install
+Write the pin by hand in `package.json`, then install:
+
+```json
+"memlet": "git+https://github.com/bergaaberg/memlet.git#v0.1.0"
 ```
+
+- Use the `git+https` form, not `github:`. The repo is private, and the shorthand makes
+  pnpm reach for SSH, which this Mac has no GitHub key for. HTTPS goes through the
+  keychain that `gh` set up.
+- pnpm 11 and npm install it. pnpm 9 rewrites private GitHub URLs to SSH and fails, so a
+  pnpm repo needs `"packageManager": "pnpm@11.x"`.
+- `pnpm add` drops the `#tag` from `package.json` (the lockfile still pins the commit).
+  Put the tag back, or the next bump has nothing to move.
 
 ## Work on it
 
