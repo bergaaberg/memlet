@@ -1,0 +1,13 @@
+# mountainrange catalog: what this repo is, what owns what, what to read.
+# Schema: mountainrange/PLAN.md (Locked decisions, D5) and src/atlas/range.ts. Machine-checked on scan.
+name: memlet
+description: A tiny memory for assistants — a few hundred one-sentence facts per scope, on any SQLite.
+tier: active
+components:
+  - name: store
+    owns: [src/store.ts, src/sql.ts, src/check.ts]
+  - name: reflect
+    owns: [src/reflect.ts, src/prompt.ts]
+docs:
+  readme: README.md
+  rules: CLAUDE.md

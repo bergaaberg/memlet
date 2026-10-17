@@ -1,0 +1,3 @@
+#!/bin/sh
+# dist is what consumers install (a git dependency runs no build), so it must match src.
+exec pnpm check
