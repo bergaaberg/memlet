@@ -1,8 +1,12 @@
 {
   "name": "memlet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A tiny memory for assistants: a few hundred one-sentence facts per scope, on any SQLite.",
-  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bergaaberg/memlet.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"

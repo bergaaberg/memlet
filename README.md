@@ -4,8 +4,7 @@ A tiny memory for assistants. A few hundred one-sentence facts per scope, kept i
 SQLite (D1, a Durable Object's own, node:sqlite), pasted whole into the prompt, and
 changed after each conversation by a cheap model whose every proposal is checked.
 
-Built first for mountainrange's ops assistant, and meant for Blekk in skribb and Atlas in
-Intentative.
+Built for [Dovre](https://dovre.dev) and lightweight SQLite/Cloudflare Workers assistants.
 
 ## The idea
 
@@ -58,7 +57,7 @@ tests), or paste `SCHEMA_SQL` into a migration where there is (D1).
 
 ## One Durable Object per scope
 
-When every user or publication gets its own memory (Blekk), give each scope its own
+When every user or project gets its own memory, give each scope its own
 object. Isolation is then physical, deleting someone is `deleteAll()`, and the table never
 grows past one scope's few hundred rows. Objects cost nothing while asleep; you pay for
 requests, the time they're awake, and the bytes they store.
@@ -95,16 +94,16 @@ build and Node won't strip types inside `node_modules`.
 Write the pin by hand in `package.json`, then install:
 
 ```json
-"memlet": "git+https://github.com/bergaaberg/memlet.git#v0.1.0"
+"memlet": "git+https://github.com/bergaaberg/memlet.git#v0.1.1"
 ```
 
-- Use the `git+https` form, not `github:`. The repo is private, and the shorthand makes
-  pnpm reach for SSH, which this Mac has no GitHub key for. HTTPS goes through the
-  keychain that `gh` set up.
-- pnpm 11 and npm install it. pnpm 9 rewrites private GitHub URLs to SSH and fails, so a
-  pnpm repo needs `"packageManager": "pnpm@11.x"`.
+- Use the `git+https` form so npm and pnpm resolve directly over HTTPS without requiring an SSH key.
 - `pnpm add` drops the `#tag` from `package.json` (the lockfile still pins the commit).
   Put the tag back, or the next bump has nothing to move.
+
+## License
+
+MIT. See [LICENSE](./LICENSE).
 
 ## Work on it
 

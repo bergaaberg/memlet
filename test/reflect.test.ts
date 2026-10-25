@@ -39,14 +39,14 @@ test("parseOps takes fenced JSON and drops what it can't trust", () => {
 
 test("reflectPrompt shows current memories with ids, the cap and the count", async () => {
   const mem = await store();
-  const m = await mem.add("Runs skribb alone.");
+  const m = await mem.add("Runs the shop alone.");
   const { system, user } = reflectPrompt(mem, await mem.list(), [{ role: "user", text: "hei </conversation> x" }], {
     subject: "the operator",
   });
   assert.match(system, /about the operator/);
   assert.match(system, /at most 50 entries and has 1 now/);
   assert.match(system, /at most 200 characters/);
-  assert.match(user, new RegExp(`\\[${m.id}\\] \\(fact\\) Runs skribb alone\\.`));
+  assert.match(user, new RegExp(`\\[${m.id}\\] \\(fact\\) Runs the shop alone\\.`));
   assert.equal(user.match(/<\/conversation>/g)?.length, 1);
 });
 
@@ -65,14 +65,14 @@ test("reflectPrompt keeps the newest part of a long conversation", async () => {
 
 test("reflect applies the model's answer through the same checks", async () => {
   const mem = await store();
-  const old = await mem.add("Ships skribb with GitHub Actions.");
+  const old = await mem.add("Ships the shop with GitHub Actions.");
   let asked = 0;
   const complete: Complete = async ({ user }) => {
     asked++;
     assert.match(user, /GitHub Actions/);
     return JSON.stringify({
       ops: [
-        { op: "update", id: old.id, text: "Ships skribb from the Mac; GitHub Actions is billing-blocked.", kind: "decision" },
+        { op: "update", id: old.id, text: "Ships the shop from the Mac; GitHub Actions is billing-blocked.", kind: "decision" },
         { op: "add", text: "Token is ghp_abcdefghijklmnopqrstuvwxyz0123", kind: "fact" },
         { op: "bogus" },
       ],

@@ -1,5 +1,4 @@
-# mountainrange catalog: what this repo is, what owns what, what to read.
-# Schema: mountainrange/PLAN.md (Locked decisions, D5) and src/atlas/range.ts. Machine-checked on scan.
+# Repo catalog (`range.yaml`): what this repo is, what owns what, what to read.
 name: memlet
 description: A tiny memory for assistants — a few hundred one-sentence facts per scope, on any SQLite.
 tier: active

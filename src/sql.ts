@@ -17,7 +17,7 @@ type D1Like = {
   prepare(query: string): { bind(...params: SqlValue[]): { all<T>(): Promise<{ results: T[] }> } };
 };
 
-/** A D1 binding, or anything speaking its prepare/bind/all (mountainrange's src/db.ts does). */
+/** A D1 binding, or anything speaking its prepare/bind/all. */
 export function fromD1(db: D1Like): Sql {
   return {
     async all<T>(query: string, params: SqlValue[] = []) {

@@ -16,13 +16,13 @@ const clock = () => new Date(Date.UTC(2026, 9, 17, 12, 0, tick++));
 test("add, list newest first, update, forget", async () => {
   const { sql } = await fresh();
   const mem = memlet(sql, { scope: "op", now: clock });
-  const a = await mem.add("Skribb deploys go out from a local machine, not CI.", { kind: "decision" });
+  const a = await mem.add("Shop deploys go out from a local machine, not CI.", { kind: "decision" });
   const b = await mem.add("  Prefers   short answers. ", { kind: "preference", source: "ch_1" });
   assert.equal(b.text, "Prefers short answers.");
   assert.equal(b.source, "ch_1");
   assert.deepEqual((await mem.list()).map((m) => m.id), [b.id, a.id]);
 
-  const changed = await mem.update(a.id, "Skribb deploys go out from the Mac with pnpm ci:local first.");
+  const changed = await mem.update(a.id, "Shop deploys go out from the Mac with pnpm ci:local first.");
   assert.equal(changed.kind, "decision");
   assert.deepEqual((await mem.list()).map((m) => m.id), [a.id, b.id]);
 

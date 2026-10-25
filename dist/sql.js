@@ -6,7 +6,7 @@
  * The adapters below are typed by shape, not by import, so this file never pulls in
  * `cloudflare:workers` or `node:sqlite` and runs in either place.
  */
-/** A D1 binding, or anything speaking its prepare/bind/all (mountainrange's src/db.ts does). */
+/** A D1 binding, or anything speaking its prepare/bind/all. */
 export function fromD1(db) {
     return {
         async all(query, params = []) {

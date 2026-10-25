@@ -19,7 +19,7 @@ type D1Like = {
         };
     };
 };
-/** A D1 binding, or anything speaking its prepare/bind/all (mountainrange's src/db.ts does). */
+/** A D1 binding, or anything speaking its prepare/bind/all. */
 export declare function fromD1(db: D1Like): Sql;
 type DurableObjectSqlLike = {
     exec(query: string, ...params: SqlValue[]): {
