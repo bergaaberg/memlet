@@ -1,4 +1,4 @@
-# Repo catalog (`range.yaml`): what this repo is, what owns what, what to read.
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bergaaberg/peak/main/peak.schema.json
 name: memlet
 description: A tiny memory for assistants — a few hundred one-sentence facts per scope, on any SQLite.
 tier: active
