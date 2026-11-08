@@ -1,0 +1,6 @@
+{
+  "allow": [
+    "registry.npmjs.org"
+  ],
+  "setup": "pnpm install --frozen-lockfile"
+}
