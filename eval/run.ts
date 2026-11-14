@@ -10,7 +10,7 @@
 import { writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import Anthropic from "@anthropic-ai/sdk";
-import { type Complete, fromNodeSqlite, memlet, migrate, reflect, toPrompt } from "../src/index.ts";
+import { type Complete, estimateTokens, fromNodeSqlite, memlet, migrate, reflect, toPrompt } from "../src/index.ts";
 import { counter, hasCredentials, MODEL } from "./count.ts";
 import { MEMORIES } from "./fixtures.ts";
 import { type Outcome, runScenario, scripted } from "./quality.ts";
@@ -58,6 +58,15 @@ say("| | memories shown | block tokens |");
 say("|---|---:|---:|");
 say(`| 0.1.1 (8000 chars) | ${oldFit.length} | ${await tokens.count(v01.toPrompt(oldFit, { omitted: 100 - oldFit.length }))} |`);
 say(`| now | ${nowFit.memories.length} | ${await tokens.count(toPrompt(nowFit.memories, { omitted: nowFit.omitted }))} |`);
+
+// How far recall's estimate is from the counter, on the full block.
+{
+  const block = toPrompt(nowFit.memories, { omitted: nowFit.omitted });
+  const counted = await tokens.count(block);
+  const estimated = estimateTokens(block);
+  say();
+  say(`recall's estimate for that block is ${estimated} tokens against ${counted} counted (${estimated >= counted ? "+" : ""}${Math.round(((estimated - counted) / counted) * 100)}%); a budget errs toward fitting when this is positive.`);
+}
 
 // 3. Reflection over one long chat, reflected on three times.
 say();

@@ -7,25 +7,27 @@ Baseline is memlet 0.1.1's prompts, frozen in eval/v01.ts. Fixtures: eval/fixtur
 
 | memories | 0.1.1 tokens | now tokens | saved per turn | saved |
 |---:|---:|---:|---:|---:|
-| 10 | 349 | 349 | 0 | 0% |
-| 50 | 1543 | 1543 | 0 | 0% |
-| 100 | 2979 | 2979 | 0 | 0% |
+| 10 | 349 | 193 | 156 | 45% |
+| 50 | 1543 | 781 | 762 | 49% |
+| 100 | 2979 | 1496 | 1483 | 50% |
 
 ## Default recall on a full scope (100 memories)
 
 | | memories shown | block tokens |
 |---|---:|---:|
-| 0.1.1 (8000 chars) | 87 | 2424 |
-| now | 87 | 2424 |
+| 0.1.1 (8000 chars) | 87 | 2457 |
+| now | 100 | 1496 |
+
+recall's estimate for that block is 1928 tokens against 1496 counted (+29%); a budget errs toward fitting when this is positive.
 
 ## Reflection: one 12-turn chat, reflected after turns 4, 8 and 12, 100 memories
 
 | | 0.1.1 input tokens | now input tokens |
 |---|---:|---:|
-| after turn 4 | 3165 | 3165 |
-| after turn 8 | 3233 | 3233 |
-| after turn 12 | 3307 | 3307 |
-| **total** | **9705** | **9705** (3 calls, 0% saved) |
+| after turn 4 | 3195 | 3195 |
+| after turn 8 | 3263 | 3263 |
+| after turn 12 | 3337 | 3337 |
+| **total** | **9795** | **9795** (3 calls, 0% saved) |
 
 ## Quality: scripted (ideal answers, checks the pipeline)
 

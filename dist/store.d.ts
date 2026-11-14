@@ -49,6 +49,7 @@ export declare const DEFAULTS: {
     readonly max: 100;
     readonly maxChars: 280;
     readonly maxAddsPerApply: 3;
+    readonly budgetTokens: 3000;
 };
 export type StoreOptions = {
     scope: string;
@@ -85,8 +86,12 @@ export type Store = {
     apply(ops: readonly Op[], opts?: {
         source?: string;
     }): Promise<ApplyResult>;
-    /** As many memories as fit in `budgetChars` of rendered prompt, newest change first. */
+    /**
+     * As many memories as fit in `budgetTokens` (estimated) of toPrompt's block, newest change
+     * first. `budgetChars` is 0.1's budget, kept for callers that pass it.
+     */
     recall(opts?: {
+        budgetTokens?: number;
         budgetChars?: number;
     }): Promise<{
         memories: Memory[];

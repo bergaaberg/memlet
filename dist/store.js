@@ -8,6 +8,7 @@
  * write per memory, and writes are the meter that bills.
  */
 import { isKind, normalize, refuse } from "./check.js";
+import { BLOCK_TOKENS, lineTokens } from "./prompt.js";
 /** Each statement on its own, for engines that take one at a time (D1's prepare). */
 export const SCHEMA = [
     `CREATE TABLE IF NOT EXISTS memlet_memories (
@@ -28,7 +29,7 @@ export async function migrate(sql) {
     for (const statement of SCHEMA)
         await sql.all(statement);
 }
-export const DEFAULTS = { max: 100, maxChars: 280, maxAddsPerApply: 3 };
+export const DEFAULTS = { max: 100, maxChars: 280, maxAddsPerApply: 3, budgetTokens: 3000 };
 export class MemletError extends Error {
     reason;
     constructor(reason) {
@@ -113,17 +114,17 @@ export function memlet(sql, options) {
         return result;
     }
     async function recall(opts = {}) {
-        const budget = opts.budgetChars ?? 8000;
         const rows = await list();
+        const byChars = opts.budgetChars !== undefined;
+        // 0.1 counted characters: the text plus about 30 for id, kind and punctuation.
+        const cost = byChars ? (m) => m.text.length + 30 : lineTokens;
+        let left = byChars ? opts.budgetChars : (opts.budgetTokens ?? DEFAULTS.budgetTokens) - BLOCK_TOKENS;
         const memories = [];
-        let used = 0;
         for (const m of rows) {
-            // id, kind and the line's punctuation: about 30 characters on top of the text.
-            const cost = m.text.length + 30;
-            if (used + cost > budget)
+            left -= cost(m);
+            if (left < 0)
                 break;
             memories.push(m);
-            used += cost;
         }
         return { memories, omitted: rows.length - memories.length };
     }

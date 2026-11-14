@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { fromD1, fromDurableObject, fromNodeSqlite, MemletError, memlet, migrate, SCHEMA_SQL, type Sql, toPrompt } from "../src/index.ts";
+import {
+  estimateTokens,
+  fromD1,
+  fromDurableObject,
+  fromNodeSqlite,
+  MemletError,
+  memlet,
+  migrate,
+  SCHEMA_SQL,
+  type Sql,
+  toPrompt,
+} from "../src/index.ts";
 
 async function fresh(): Promise<{ sql: Sql; db: DatabaseSync }> {
   const db = new DatabaseSync(":memory:");
@@ -102,6 +113,42 @@ test("recall fills a budget newest first and never writes", async () => {
   assert.equal(memories.length, 2);
   assert.equal(omitted, 3);
   assert.match(memories[0]?.text ?? "", /number 4/);
+});
+
+test("recall budgets in estimated tokens, block overhead included", async () => {
+  const { sql } = await fresh();
+  const mem = memlet(sql, { scope: "op", now: clock });
+  for (let i = 0; i < 40; i++) await mem.add(`Fact number ${i} is about something rather specific.`);
+  const all = await mem.recall({ budgetTokens: 100_000 });
+  assert.equal(all.memories.length, 40);
+  const some = await mem.recall({ budgetTokens: 200 });
+  assert.ok(some.memories.length > 0 && some.memories.length < 40);
+  assert.equal(some.memories.length + some.omitted, 40);
+  assert.ok(estimateTokens(toPrompt(some.memories, { omitted: some.omitted })) <= 200);
+  assert.match(some.memories[0]?.text ?? "", /number 39/);
+  assert.equal((await mem.recall({ budgetTokens: 10 })).memories.length, 0);
+});
+
+test("estimateTokens counts bytes, so non-ASCII text costs more", () => {
+  assert.equal(estimateTokens(""), 0);
+  assert.equal(estimateTokens("abcdefg"), 2);
+  assert.ok(estimateTokens("æøåæøåæøå") > estimateTokens("aoaaoaaoa"));
+});
+
+test("toPrompt groups by kind, preferences first, without ids", async () => {
+  const { sql } = await fresh();
+  const mem = memlet(sql, { scope: "op", now: clock });
+  await mem.add("Lives in Bergen.");
+  const d = await mem.add("Ships from the Mac.", { kind: "decision" });
+  await mem.add("Prefers short answers.", { kind: "preference" });
+  await mem.add("Has a dog.");
+  const block = toPrompt(await mem.list());
+  assert.equal(
+    block.split("\n").slice(2, -1).join("\n"),
+    "Preferences:\n- Prefers short answers.\nDecisions:\n- Ships from the Mac.\nFacts:\n- Has a dog.\n- Lives in Bergen.",
+  );
+  assert.doesNotMatch(block, new RegExp(d.id));
+  assert.doesNotMatch(block, /\(fact\)/);
 });
 
 test("toPrompt keeps a memory from closing its block", async () => {

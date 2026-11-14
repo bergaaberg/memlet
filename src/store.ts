@@ -8,6 +8,7 @@
  * write per memory, and writes are the meter that bills.
  */
 import { isKind, type Kind, normalize, type Refusal, refuse } from "./check.ts";
+import { BLOCK_TOKENS, lineTokens } from "./prompt.ts";
 import type { Sql } from "./sql.ts";
 
 export type Memory = {
@@ -51,7 +52,7 @@ export async function migrate(sql: Sql): Promise<void> {
   for (const statement of SCHEMA) await sql.all(statement);
 }
 
-export const DEFAULTS = { max: 100, maxChars: 280, maxAddsPerApply: 3 } as const;
+export const DEFAULTS = { max: 100, maxChars: 280, maxAddsPerApply: 3, budgetTokens: 3000 } as const;
 
 export type StoreOptions = {
   scope: string;
@@ -85,8 +86,11 @@ export type Store = {
   clear(): Promise<number>;
   /** Proposed changes, checked one by one: deletes first (they make room), then updates, then adds. */
   apply(ops: readonly Op[], opts?: { source?: string }): Promise<ApplyResult>;
-  /** As many memories as fit in `budgetChars` of rendered prompt, newest change first. */
-  recall(opts?: { budgetChars?: number }): Promise<{ memories: Memory[]; omitted: number }>;
+  /**
+   * As many memories as fit in `budgetTokens` (estimated) of toPrompt's block, newest change
+   * first. `budgetChars` is 0.1's budget, kept for callers that pass it.
+   */
+  recall(opts?: { budgetTokens?: number; budgetChars?: number }): Promise<{ memories: Memory[]; omitted: number }>;
 };
 
 const newId = () => `m_${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
@@ -167,17 +171,17 @@ export function memlet(sql: Sql, options: StoreOptions): Store {
     return result;
   }
 
-  async function recall(opts: { budgetChars?: number } = {}) {
-    const budget = opts.budgetChars ?? 8000;
+  async function recall(opts: { budgetTokens?: number; budgetChars?: number } = {}) {
     const rows = await list();
+    const byChars = opts.budgetChars !== undefined;
+    // 0.1 counted characters: the text plus about 30 for id, kind and punctuation.
+    const cost = byChars ? (m: Memory) => m.text.length + 30 : lineTokens;
+    let left = byChars ? (opts.budgetChars as number) : (opts.budgetTokens ?? DEFAULTS.budgetTokens) - BLOCK_TOKENS;
     const memories: Memory[] = [];
-    let used = 0;
     for (const m of rows) {
-      // id, kind and the line's punctuation: about 30 characters on top of the text.
-      const cost = m.text.length + 30;
-      if (used + cost > budget) break;
+      left -= cost(m);
+      if (left < 0) break;
       memories.push(m);
-      used += cost;
     }
     return { memories, omitted: rows.length - memories.length };
   }
