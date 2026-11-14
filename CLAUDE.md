@@ -11,5 +11,7 @@ README.md has the idea and the API; this file holds the rules.
   runs it). Never `--no-verify`.
 - The table schema is additive only: apps paste `SCHEMA_SQL` into migrations they never
   edit. A new column needs a default and a note in the release.
+- A change to what memlet sends a model (`src/prompt.ts`, `src/reflect.ts`) is measured:
+  `pnpm eval --write`, and commit `eval/RESULTS.md` with it. Never edit `eval/v01.ts`.
 - Keep it small. Retrieval beyond "everything that fits" (FTS, embeddings) waits until a
   real scope outgrows the budget.
