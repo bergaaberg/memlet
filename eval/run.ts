@@ -49,7 +49,7 @@ const full = memlet(sql, { scope: "operator", now: (() => {
   return () => new Date(Date.UTC(2026, 10, 1) + i++ * 1000);
 })() });
 for (const m of [...MEMORIES].reverse()) await full.add(m.text, { kind: m.kind });
-const oldFit = v01.recall(await full.list());
+const oldFit = v01.recall(MEMORIES);
 const nowFit = await full.recall();
 say();
 say("## Default recall on a full scope (100 memories)");
@@ -74,28 +74,41 @@ say("## Reflection: one 12-turn chat, reflected after turns 4, 8 and 12, 100 mem
 say();
 let oldTotal = 0;
 let nowTotal = 0;
+let nowCached = 0;
 let nowCalls = 0;
-const rows = await full.list();
+let seen = 0;
 const lines: string[] = [];
 for (const k of SESSION.reflectAfter) {
   const turns = SESSION.turns.slice(0, k);
-  const old = v01.reflectPrompt(full, rows, turns, { subject: "the operator" });
+  const old = v01.reflectPrompt(full, MEMORIES, turns, { subject: "the operator" });
   const oldTokens = (await tokens.count(old.system)) + (await tokens.count(old.user));
   oldTotal += oldTokens;
   let nowTokens = 0;
-  const record: Complete = async ({ system, user }) => {
+  let prefix = 0;
+  const record: Complete = async ({ system, user, parts }) => {
     nowCalls++;
     nowTokens = (await tokens.count(system)) + (await tokens.count(user));
+    prefix = (await tokens.count(system)) + (parts ? await tokens.count(parts.memories) : 0);
     return '{"ops": []}';
   };
-  await reflect(full, turns, record, { subject: "the operator" });
+  const result = await reflect(full, turns, record, { subject: "the operator", seen });
+  seen = result.seen;
   nowTotal += nowTokens;
-  lines.push(`| after turn ${k} | ${oldTokens} | ${nowTokens || "skipped"} |`);
+  nowCached += prefix;
+  lines.push(`| after turn ${k} | ${oldTokens} | ${nowTokens ? `${nowTokens} (${prefix} cacheable)` : `skipped: ${result.skipped}`} |`);
 }
 say("| | 0.1.1 input tokens | now input tokens |");
 say("|---|---:|---:|");
 for (const l of lines) say(l);
-say(`| **total** | **${oldTotal}** | **${nowTotal}** (${nowCalls} calls, ${pct(oldTotal, nowTotal)} saved) |`);
+say(`| **total** | **${oldTotal}** | **${nowTotal}** (${nowCalls} calls, ${pct(oldTotal, nowTotal)} fewer tokens) |`);
+say();
+// Billed input if the reflections land inside the cache lifetime (5 minutes by default):
+// the first call writes the prefix at 1.25x, later calls read it at 0.1x.
+const prefixes = nowCached / Math.max(nowCalls, 1);
+const billed = Math.round(nowTotal - nowCached + prefixes * 1.25 + (nowCalls - 1) * prefixes * 0.1);
+say(
+  `${nowCached} of those ${nowTotal} tokens are the cacheable prefix (rules, then memories). With two cache breakpoints and the calls inside the cache lifetime, billed input comes to about ${billed} token-equivalents (first write at 1.25x, reads at 0.1x), against ${oldTotal} for 0.1.1 sent uncached as one string.`,
+);
 
 // 4. Quality.
 async function suite(label: string, make: (s: (typeof SCENARIOS)[number]) => Complete) {
@@ -124,13 +137,24 @@ if (args.has("--live")) {
   } else {
     const client = new Anthropic();
     const usage = { input: 0, cached: 0, output: 0 };
-    const live: Complete = async ({ system, user }) => {
+    const cached = { type: "ephemeral" } as const;
+    const live: Complete = async ({ system, user, parts }) => {
       const res = await client.messages.create({
         model: MODEL,
         max_tokens: 4096,
         output_config: { effort: "low" },
-        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: user }],
+        system: [{ type: "text", text: system, cache_control: cached }],
+        messages: [
+          {
+            role: "user",
+            content: parts
+              ? [
+                  { type: "text", text: parts.memories, cache_control: cached },
+                  { type: "text", text: parts.conversation },
+                ]
+              : user,
+          },
+        ],
       });
       usage.input += res.usage.input_tokens + (res.usage.cache_creation_input_tokens ?? 0);
       usage.cached += res.usage.cache_read_input_tokens ?? 0;

@@ -1,7 +1,17 @@
 export { isKind, KINDS, type Kind, looksSecret, normalize, type Refusal } from "./check.ts";
 export { memoryLines, toPrompt } from "./prompt.ts";
 export { estimateTokens } from "./tokens.ts";
-export { type Complete, parseOps, type ReflectOptions, reflect, reflectPrompt, type Turn } from "./reflect.ts";
+export {
+  type Complete,
+  isSmallTalk,
+  parseOps,
+  type ReflectOptions,
+  type ReflectPrompt,
+  type ReflectResult,
+  reflect,
+  reflectPrompt,
+  type Turn,
+} from "./reflect.ts";
 export { fromD1, fromDurableObject, fromNodeSqlite, type Sql, type SqlValue } from "./sql.ts";
 export {
   type ApplyResult,

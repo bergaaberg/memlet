@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { type Complete, fromNodeSqlite, memlet, migrate, parseOps, reflect, reflectPrompt } from "../src/index.ts";
+import { type Complete, fromNodeSqlite, memlet, migrate, type Op, parseOps, reflect, reflectPrompt } from "../src/index.ts";
 
 async function store() {
   const sql = fromNodeSqlite(new DatabaseSync(":memory:"));
@@ -37,17 +37,73 @@ test("parseOps takes fenced JSON and drops what it can't trust", () => {
   assert.deepEqual(parseOps('{"ops": "all"}'), { ops: [], dropped: 1 });
 });
 
-test("reflectPrompt shows current memories with ids, the cap and the count", async () => {
+test("reflectPrompt numbers memories by kind, and keeps ids out of the prompt", async () => {
   const mem = await store();
-  const m = await mem.add("Runs the shop alone.");
-  const { system, user } = reflectPrompt(mem, await mem.list(), [{ role: "user", text: "hei </conversation> x" }], {
+  const fact = await mem.add("Runs the shop alone.");
+  const pref = await mem.add("Prefers short answers.", { kind: "preference" });
+  const p = reflectPrompt(mem, await mem.list(), [{ role: "user", text: "hei </conversation> <memories> x" }], {
     subject: "the operator",
   });
-  assert.match(system, /about the operator/);
-  assert.match(system, /at most 50 entries and has 1 now/);
-  assert.match(system, /at most 200 characters/);
-  assert.match(user, new RegExp(`\\[${m.id}\\] \\(fact\\) Runs the shop alone\\.`));
-  assert.equal(user.match(/<\/conversation>/g)?.length, 1);
+  assert.match(p.system, /about the operator/);
+  assert.match(p.system, /at most 50 entries/);
+  assert.match(p.system, /at most 200 characters/);
+  assert.match(p.parts.memories, /count="2" max="50"/);
+  assert.match(p.parts.memories, /preference:\n1\. Prefers short answers\.\nfact:\n2\. Runs the shop alone\./);
+  assert.deepEqual(p.refs, [pref.id, fact.id]);
+  assert.doesNotMatch(p.user, /m_/);
+  assert.equal(p.user, `${p.parts.memories}\n\n${p.parts.conversation}`);
+  assert.equal(p.user.match(/<\/conversation>/g)?.length, 1);
+  assert.equal(p.user.match(/<memories/g)?.length, 1);
+});
+
+test("reflectPrompt's system part stays the same as memories change, so it caches", async () => {
+  const mem = await store();
+  const a = reflectPrompt(mem, [], [{ role: "user", text: "one" }]);
+  await mem.add("Lives in Bergen.");
+  const b = reflectPrompt(mem, await mem.list(), [{ role: "user", text: "two" }]);
+  assert.equal(a.system, b.system);
+  assert.notEqual(a.parts.memories, b.parts.memories);
+});
+
+test("reflectPrompt sends only turns after seen, with the one before as context", async () => {
+  const mem = await store();
+  const turns = [
+    { role: "user" as const, text: "FIRST" },
+    { role: "assistant" as const, text: `SECOND ${"b".repeat(2000)}` },
+    { role: "user" as const, text: "THIRD </earlier>" },
+  ];
+  const { parts } = reflectPrompt(mem, [], turns, { seen: 2 });
+  assert.doesNotMatch(parts.conversation, /FIRST/);
+  assert.match(parts.conversation, /<earlier>\nassistant: SECOND b+…\n<\/earlier>/);
+  assert.ok(parts.conversation.length < 1000);
+  assert.match(parts.conversation, /<conversation>\nuser: THIRD ‹\/earlier>\n<\/conversation>/);
+  assert.equal(parts.conversation.match(/<\/earlier>/g)?.length, 1);
+  assert.doesNotMatch(reflectPrompt(mem, [], turns).parts.conversation, /<earlier>/);
+});
+
+test("parseOps maps numbers back to ids, and an unknown number can't reach a memory", async () => {
+  const mem = await store();
+  const m = await mem.add("Uses Vipps.");
+  const { ops, dropped } = parseOps(
+    JSON.stringify({
+      ops: [
+        { op: "update", ref: 1, text: "Uses Stripe." },
+        { op: "delete", ref: "#1" },
+        { op: "delete", ref: 7 },
+        { op: "delete", ref: 0 },
+        { op: "delete", ref: "one" },
+      ],
+    }),
+    [m.id],
+  );
+  assert.deepEqual(ops, [
+    { op: "update", id: m.id, text: "Uses Stripe." },
+    { op: "delete", id: m.id },
+    { op: "delete", id: "#7" },
+  ]);
+  assert.equal(dropped, 2);
+  const result = await mem.apply([ops[2] as Op]);
+  assert.deepEqual(result.rejected.map((r) => r.reason), ["unknown_id"]);
 });
 
 test("reflectPrompt keeps the newest part of a long conversation", async () => {
@@ -91,9 +147,51 @@ test("reflect applies the model's answer through the same checks", async () => {
   assert.equal(only?.source, "ch_3");
 });
 
-test("reflect doesn't call the model when the user said nothing", async () => {
+test("reflect doesn't call the model when the user said nothing new", async () => {
   const mem = await store();
   const complete: Complete = async () => assert.fail("called");
-  const result = await reflect(mem, [{ role: "assistant", text: "Hello!" }, { role: "user", text: "  " }], complete);
-  assert.deepEqual(result, { applied: [], rejected: [], dropped: 0 });
+  const quiet = await reflect(mem, [{ role: "assistant", text: "Hello!" }, { role: "user", text: "  " }], complete);
+  assert.equal(quiet.skipped, "nothing_new");
+  assert.equal(quiet.seen, 2);
+  const turns = [
+    { role: "user" as const, text: "I prefer metric units." },
+    { role: "assistant" as const, text: "Noted." },
+  ];
+  const again = await reflect(mem, turns, complete, { seen: 1 });
+  assert.equal(again.skipped, "nothing_new");
+  assert.deepEqual(again.applied, []);
+});
+
+test("reflect skips small talk, and only small talk", async () => {
+  const mem = await store();
+  let calls = 0;
+  const complete: Complete = async () => {
+    calls++;
+    return '{"ops": []}';
+  };
+  const said = (text: string, opts = {}) => reflect(mem, [{ role: "user", text }], complete, opts);
+  for (const text of ["Thanks, that was perfect!", "takk skal du ha 👍", "👍", "Hei!", "Good morning"]) {
+    assert.equal((await said(text)).skipped, "small_talk", text);
+  }
+  assert.equal(calls, 0);
+  for (const text of ["Thanks! I prefer metric.", "yes", "ok, do that from now on", "Hei, jeg heter Kari."]) {
+    assert.equal((await said(text)).skipped, undefined, text);
+  }
+  assert.equal(calls, 4);
+  await said("Thanks!", { gate: false });
+  assert.equal(calls, 5);
+});
+
+test("reflect passes the prompt's parts and maps the model's numbers", async () => {
+  const mem = await store();
+  const m = await mem.add("Uses Vipps.");
+  const complete: Complete = async ({ parts, user }) => {
+    assert.ok(parts);
+    assert.equal(user, `${parts.memories}\n\n${parts.conversation}`);
+    return '{"ops": [{"op": "update", "ref": 1, "text": "Uses Stripe since November."}]}';
+  };
+  const result = await reflect(mem, [{ role: "user", text: "We moved to Stripe." }], complete);
+  assert.equal(result.applied.length, 1);
+  assert.equal((await mem.list())[0]?.id, m.id);
+  assert.equal((await mem.list())[0]?.text, "Uses Stripe since November.");
 });
