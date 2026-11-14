@@ -198,9 +198,9 @@ export async function reflect(
 ): Promise<ReflectResult> {
   const seen = turns.length;
   const said = turns.slice(Math.max(opts.seen ?? 0, 0)).filter((t) => t.role === "user" && t.text.trim());
-  if (!said.length) return { applied: [], rejected: [], dropped: 0, seen, skipped: "nothing_new" };
+  if (!said.length) return { applied: [], rejected: [], batch: null, dropped: 0, seen, skipped: "nothing_new" };
   if (opts.gate !== false && said.every((t) => isSmallTalk(t.text))) {
-    return { applied: [], rejected: [], dropped: 0, seen, skipped: "small_talk" };
+    return { applied: [], rejected: [], batch: null, dropped: 0, seen, skipped: "small_talk" };
   }
   const memories = await store.list();
   const prompt = reflectPrompt(store, memories, turns, opts);

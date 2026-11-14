@@ -17,6 +17,7 @@ export {
   type ApplyResult,
   DEFAULTS,
   type Memory,
+  type MemoryEvent,
   MemletError,
   memlet,
   migrate,
@@ -26,4 +27,5 @@ export {
   SCHEMA_SQL,
   type Store,
   type StoreOptions,
+  type UndoResult,
 } from "./store.ts";
