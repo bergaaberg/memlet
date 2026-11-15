@@ -6,7 +6,9 @@ components:
   - name: store
     owns: [src/store.ts, src/sql.ts, src/check.ts]
   - name: reflect
-    owns: [src/reflect.ts, src/prompt.ts]
+    owns: [src/reflect.ts, src/prompt.ts, src/tokens.ts]
+  - name: eval
+    owns: [eval/]
 docs:
   readme: README.md
   rules: CLAUDE.md

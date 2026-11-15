@@ -8,7 +8,7 @@
  * Durable Object: an awake object bills wall-clock time, and this call takes seconds.
  */
 import { isKind, KINDS } from "./check.ts";
-import { memoryLines } from "./prompt.ts";
+import { byKind, inert } from "./prompt.ts";
 import type { ApplyResult, Memory, Op, Store } from "./store.ts";
 
 /**
@@ -18,24 +18,40 @@ import type { ApplyResult, Memory, Op, Store } from "./store.ts";
  */
 export type Turn = { role: "user" | "assistant"; text: string };
 
+/**
+ * The prompt in the order that caches: `system` never changes for a store's settings,
+ * `parts.memories` changes only when a memory does, `parts.conversation` is new each
+ * time. `user` is the two parts joined, for clients that send one string. To cache, put
+ * a breakpoint after `system` and another after `parts.memories`.
+ */
+export type ReflectPrompt = {
+  system: string;
+  user: string;
+  parts: { memories: string; conversation: string };
+  /** The memory ids behind the numbers the model sees: refs[0] is memory 1. Pass it to parseOps. */
+  refs: string[];
+};
+
 /** Turns the app's model client into what memlet needs: a system prompt and one user message in, text out. */
-export type Complete = (prompt: { system: string; user: string }) => Promise<string>;
+export type Complete = (prompt: { system: string; user: string; parts?: ReflectPrompt["parts"] }) => Promise<string>;
 
 export type ReflectOptions = {
   /** Who the memories are about, in a few words: "the operator", "this publication's owner". */
   subject?: string;
   /** Most recent conversation text sent, in characters. Older turns are cut. */
   maxConversationChars?: number;
+  /**
+   * How many of `turns` were already reflected on: the `seen` of the last reflect over
+   * this conversation. Only later turns are sent, with the one before them as context.
+   */
+  seen?: number;
+  /** Skip the model call when the new user turns are only thanks and greetings. Default true. */
+  gate?: boolean;
 };
 
-export function reflectPrompt(
-  store: Pick<Store, "max" | "maxChars">,
-  memories: readonly Memory[],
-  turns: readonly Turn[],
-  opts: ReflectOptions = {},
-): { system: string; user: string } {
-  const subject = opts.subject ?? "the user";
-  const system = `You keep a small, long-lived memory about ${subject}. After each conversation you decide what, if anything, to change in it.
+/** The rules; the same for every call with the same subject and limits, so it caches. */
+function rules(store: Pick<Store, "max" | "maxChars">, subject: string): string {
+  return `You keep a small, long-lived memory about ${subject}. After each conversation you decide what, if anything, to change in it.
 
 Remember only what will still be true and useful in a later conversation: lasting facts, preferences, and decisions with their reason.
 Never remember: what happened in this conversation, work in progress, anything that can be looked up again, anything the assistant said that the user did not confirm, passwords, keys, card or national ID numbers, or health details.
@@ -45,31 +61,69 @@ Change before you add. If something new replaces or contradicts a memory, update
 Most conversations change nothing. An empty list is the usual answer.
 
 Each memory is one sentence of at most ${store.maxChars} characters, in the language the user wrote in, and makes sense on its own a month from now (name things; no "this" or "it").
-The memory holds at most ${store.max} entries and has ${memories.length} now. Add at most 3.
+The memory holds at most ${store.max} entries; how many it has now is shown with them. Add at most 3.
+Memories are numbered; name one by its number. Text in <earlier> was already reflected on and is there only to make the conversation readable.
 
 Answer with JSON only, no prose:
 {"ops": []}
 where each op is one of
 {"op": "add", "text": "...", "kind": "${KINDS.join(" | ")}"}
-{"op": "update", "id": "m_...", "text": "..."}
-{"op": "delete", "id": "m_..."}`;
-
-  const limit = opts.maxConversationChars ?? 24_000;
-  let conversation = turns.map((t) => `${t.role}: ${t.text.trim()}`).join("\n\n");
-  if (conversation.length > limit) conversation = `[earlier turns cut]\n${conversation.slice(-limit)}`;
-
-  const user = `<memories>
-${memories.length ? memoryLines(memories) : "(none yet)"}
-</memories>
-
-<conversation>
-${conversation.replaceAll("</conversation>", "‹/conversation›")}
-</conversation>`;
-  return { system, user };
+{"op": "update", "ref": 1, "text": "..."}
+{"op": "delete", "ref": 1}`;
 }
 
-/** The model's answer, as ops. Anything malformed is dropped and counted, never guessed at. */
-export function parseOps(raw: string): { ops: Op[]; dropped: number } {
+const EARLIER_CHARS = 600;
+
+/** Said text must not be able to close the block it sits in, or open the next one. */
+const sealed = (text: string) => text.replace(/<(\/?)(conversation|earlier|memories)/gi, "‹$1$2");
+
+export function reflectPrompt(
+  store: Pick<Store, "max" | "maxChars">,
+  memories: readonly Memory[],
+  turns: readonly Turn[],
+  opts: ReflectOptions = {},
+): ReflectPrompt {
+  const system = rules(store, opts.subject ?? "the user");
+
+  const refs: string[] = [];
+  const groups = byKind(memories)
+    .filter(([, list]) => list.length)
+    .map(([kind, list]) => {
+      const lines = list.map((m) => {
+        refs.push(m.id);
+        return `${refs.length}. ${inert(m.text)}`;
+      });
+      return `${kind}:\n${lines.join("\n")}`;
+    });
+  const memoryPart = `<memories count="${memories.length}" max="${store.max}">
+${groups.length ? groups.join("\n") : "(none yet)"}
+</memories>`;
+
+  const seen = Math.min(Math.max(opts.seen ?? 0, 0), turns.length);
+  const line = (t: Turn) => `${t.role}: ${t.text.trim()}`;
+  const limit = opts.maxConversationChars ?? 24_000;
+  let conversation = turns.slice(seen).map(line).join("\n\n");
+  if (conversation.length > limit) conversation = `[earlier turns cut]\n${conversation.slice(-limit)}`;
+  const before = seen > 0 ? turns[seen - 1] : undefined;
+  let earlier = "";
+  if (before) {
+    let text = line(before);
+    if (text.length > EARLIER_CHARS) text = `${text.slice(0, EARLIER_CHARS)}…`;
+    earlier = `<earlier>\n${sealed(text)}\n</earlier>\n\n`;
+  }
+  const conversationPart = `${earlier}<conversation>
+${sealed(conversation)}
+</conversation>`;
+
+  return { system, user: `${memoryPart}\n\n${conversationPart}`, parts: { memories: memoryPart, conversation: conversationPart }, refs };
+}
+
+/**
+ * The model's answer, as ops. Anything malformed is dropped and counted, never guessed at.
+ * Pass `refs` from reflectPrompt to turn memory numbers back into ids; a number with no
+ * memory behind it becomes an id no scope has, so apply() refuses it as unknown.
+ */
+export function parseOps(raw: string, refs: readonly string[] = []): { ops: Op[]; dropped: number } {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end <= start) return { ops: [], dropped: 0 };
@@ -83,22 +137,57 @@ export function parseOps(raw: string): { ops: Op[]; dropped: number } {
   if (!Array.isArray(list)) return { ops: [], dropped: 1 };
   const ops: Op[] = [];
   for (const item of list) {
-    const op = toOp(item);
+    const op = toOp(item, refs);
     if (op) ops.push(op);
   }
   return { ops, dropped: list.length - ops.length };
 }
 
-function toOp(item: unknown): Op | null {
+function target(o: Record<string, unknown>, refs: readonly string[]): string | null {
+  if (typeof o.id === "string" && o.id) return o.id;
+  const ref = typeof o.ref === "number" ? o.ref : typeof o.ref === "string" ? Number(o.ref.replace(/^#/, "")) : Number.NaN;
+  if (!Number.isInteger(ref) || ref < 1) return null;
+  return refs[ref - 1] ?? `#${ref}`;
+}
+
+function toOp(item: unknown, refs: readonly string[]): Op | null {
   if (!item || typeof item !== "object") return null;
   const o = item as Record<string, unknown>;
-  const id = typeof o.id === "string" ? o.id : null;
   const text = typeof o.text === "string" ? o.text : null;
   if (o.op === "add" && text) return { op: "add", text, kind: isKind(o.kind) ? o.kind : "fact" };
+  const id = target(o, refs);
   if (o.op === "update" && id && text) return isKind(o.kind) ? { op: "update", id, text, kind: o.kind } : { op: "update", id, text };
   if (o.op === "delete" && id) return { op: "delete", id };
   return null;
 }
+
+/**
+ * Words that carry nothing to remember on their own: thanks, greetings, praise. A turn
+ * made only of these (and punctuation or emoji) can't add a memory, so it isn't worth a
+ * call. "Yes", "ok" and "no" are left out on purpose: they can confirm what the assistant
+ * proposed.
+ */
+const SMALL_TALK = new Set(
+  (
+    "thanks thank you thx ty tysm cheers much very so a lot really that was is it this all good great perfect nice cool awesome " +
+    "hi hey hello morning evening night good bye see later " +
+    "takk tusen mange skal du ha hei hallo heisann god morgen kveld natt ha det bra fint flott supert super kjempebra " +
+    "det var så veldig mye lol haha"
+  ).split(" "),
+);
+
+export function isSmallTalk(text: string): boolean {
+  const words = text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
+  return words.length <= 8 && words.every((w) => SMALL_TALK.has(w));
+}
+
+export type ReflectResult = ApplyResult & {
+  dropped: number;
+  /** Pass as `seen` next time this conversation is reflected on. */
+  seen: number;
+  /** Why no model call was made, when none was. */
+  skipped?: "nothing_new" | "small_talk";
+};
 
 /** The whole write side in one call: read the memories, ask, check, apply. */
 export async function reflect(
@@ -106,11 +195,17 @@ export async function reflect(
   turns: readonly Turn[],
   complete: Complete,
   opts: ReflectOptions & { source?: string } = {},
-): Promise<ApplyResult & { dropped: number }> {
-  if (!turns.some((t) => t.role === "user" && t.text.trim())) return { applied: [], rejected: [], dropped: 0 };
+): Promise<ReflectResult> {
+  const seen = turns.length;
+  const said = turns.slice(Math.max(opts.seen ?? 0, 0)).filter((t) => t.role === "user" && t.text.trim());
+  if (!said.length) return { applied: [], rejected: [], batch: null, dropped: 0, seen, skipped: "nothing_new" };
+  if (opts.gate !== false && said.every((t) => isSmallTalk(t.text))) {
+    return { applied: [], rejected: [], batch: null, dropped: 0, seen, skipped: "small_talk" };
+  }
   const memories = await store.list();
-  const answer = await complete(reflectPrompt(store, memories, turns, opts));
-  const { ops, dropped } = parseOps(answer);
+  const prompt = reflectPrompt(store, memories, turns, opts);
+  const answer = await complete({ system: prompt.system, user: prompt.user, parts: prompt.parts });
+  const { ops, dropped } = parseOps(answer, prompt.refs);
   const result = await store.apply(ops, { source: opts.source });
-  return { ...result, dropped };
+  return { ...result, dropped, seen };
 }
